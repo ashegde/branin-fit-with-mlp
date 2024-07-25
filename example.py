@@ -67,7 +67,10 @@ Y_train = Y_train.to(device)
 X_test = X_test.to(device)
 Y_test = Y_test.to(device)
 
-model = MLP(in_features = 2, hidden_features = 64, out_features = 1, num_hidden = 2)
+
+hidden_features = 128
+num_hidden = 5
+model = MLP(in_features=2, hidden_features=hidden_features, out_features=1, num_hidden=num_hidden)
 model.to(device)
 
 weight_decay = 1e-5
@@ -142,5 +145,5 @@ ax3.set_yscale("log")
 ax3.legend(loc="upper right")
 
 fig.suptitle(f'Training')
-plt.savefig("training.png")
+plt.savefig(f"training_features-{hidden_features}_layers-{num_hidden}.png")
 plt.close()
