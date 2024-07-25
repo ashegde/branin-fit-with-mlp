@@ -3,7 +3,6 @@ from torch import nn, optim
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib import cm
-from matplotlib import animation
 from test_function import branin_function
 
 #-------------------------------------------------------------
@@ -30,7 +29,7 @@ class MLP(nn.Module):
         super(MLP, self).__init__()
         layers = [MLPLayer(in_features, hidden_features)] \
               + [MLPLayer(hidden_features, hidden_features) for ii in range(num_hidden)] \
-              + [nn.Linear(hidden_features, out_features, bias = True)] 
+              + [nn.Linear(hidden_features, out_features, bias = True)]
         self.net = nn.Sequential(*layers)
 
         self.apply(self._init_weights)
@@ -43,29 +42,29 @@ class MLP(nn.Module):
             nn.init.kaiming_normal_(module.weight)
             if module.bias is not None:
                 nn.init.zeros_(module.bias)
-  
+
 #-----------------------------------------------------------------
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 # setting up training data
 n = 5
-x1_train = torch.linspace(-1, 1, n)
-x2_train = torch.linspace(-1, 1, n)
-X1_train, X2_train = torch.meshgrid(x1_train, x2_train)
-X_train = torch.cat((X1_train[...,None], X2_train[...,None]), dim=-1)
-Y_train = branin_function(X_train)[...,None]
+train_x1 = torch.linspace(-1, 1, n)
+train_x2 = torch.linspace(-1, 1, n)
+train_x1, train_x2 = torch.meshgrid(train_x1, train_x2)
+train_x = torch.cat((train_x1[...,None], train_x2[...,None]), dim=-1)
+train_y = branin_function(train_x)[...,None]
 
-x1_test = torch.linspace(-1, 1, 100)
-x2_test = torch.linspace(-1, 1, 100)
-X1_test, X2_test = torch.meshgrid(x1_test, x2_test)
-X_test = torch.cat((X1_test[...,None], X2_test[...,None]), dim=-1)
-Y_test = branin_function(X_test) [...,None]
+test_x1 = torch.linspace(-1, 1, 100)
+test_x2 = torch.linspace(-1, 1, 100)
+test_x1, test_x2 = torch.meshgrid(test_x1, test_x2)
+test_x = torch.cat((test_x1[...,None], test_x2[...,None]), dim=-1)
+test_y = branin_function(test_x) [...,None]
 
-X_train = X_train.to(device)
-Y_train = Y_train.to(device)
-X_test = X_test.to(device)
-Y_test = Y_test.to(device)
+train_x = train_x.to(device)
+train_y = train_y.to(device)
+test_x = test_x.to(device)
+test_y = test_y.to(device)
 
 
 hidden_features = 128
@@ -97,8 +96,8 @@ for step in range(max_steps):
     model.train()
     optimizer.zero_grad()
 
-    pred = model(X_train)
-    loss = criterion(pred, Y_train)
+    pred = model(train_x)
+    loss = criterion(pred, train_y)
     loss.backward()
     optimizer.step()
 
@@ -106,8 +105,8 @@ for step in range(max_steps):
 
     model.eval()
     with torch.no_grad():
-        pred = model(X_test)
-        loss = criterion(pred, Y_test)
+        pred = model(test_x)
+        loss = criterion(pred, test_y)
     losses["test"].append(loss.item())
 
     if step % 10 == 0:
@@ -118,7 +117,7 @@ for step in range(max_steps):
 # Plotting
 model.eval()
 with torch.no_grad():
-    pred = model(X_test)
+    pred = model(test_x)
 
 fig = plt.figure(figsize=(15,5))
 ax1 = fig.add_subplot(1, 3, 1, projection='3d')
@@ -126,14 +125,14 @@ ax2 = fig.add_subplot(1, 3, 2, projection='3d')
 ax3 = fig.add_subplot(1, 3, 3)
 
 
-ax1.plot_surface(X1_test, X2_test, Y_test.squeeze(), cmap=cm.coolwarm, linewidth=0)
-ax1.scatter(X1_train, X2_train, Y_train.squeeze(), c='r', s=1, alpha = 1.0, label='train')
+ax1.plot_surface(test_x1, test_x2, test_y.squeeze(), cmap=cm.coolwarm, linewidth=0)
+ax1.scatter(train_x1, train_x2, train_y.squeeze(), c='r', s=1, alpha = 1.0, label='train')
 ax1.set_title(f"Ground truth")
 ax1.legend(loc="upper right")
 
-#ax2.plot_surface(X1_test, X2_test, Y_test.squeeze(), cmap=cm.gray, linewidth=0, alpha=0.6)
-ax2.scatter(X1_train, X2_train, Y_train.squeeze(), c='r', s=1, alpha = 1.0, label='train')
-ax2.scatter(X1_test, X2_test, pred.squeeze(), c='b', s=1, alpha = 0.2, label = 'test')
+#ax2.plot_surface(test_x1, train_x2, test_y.squeeze(), cmap=cm.gray, linewidth=0, alpha=0.6)
+ax2.scatter(train_x1, train_x2, train_y.squeeze(), c='r', s=1, alpha = 1.0, label='train')
+ax2.scatter(test_x1, test_x2, pred.squeeze(), c='b', s=1, alpha = 0.2, label = 'test')
 ax2.set_title(f"MLP")
 ax2.legend(loc="upper right")
 
@@ -145,5 +144,5 @@ ax3.set_yscale("log")
 ax3.legend(loc="upper right")
 
 fig.suptitle(f'Training')
-plt.savefig(f"training_features-{hidden_features}_layers-{num_hidden}.png")
+plt.savefig(f"training_features-{hidden_features}_layers-{num_hidden}.png", dpi=300)
 plt.close()
