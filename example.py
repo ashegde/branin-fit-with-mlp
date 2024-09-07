@@ -131,7 +131,7 @@ def main(args: argparse):
 
     fig.suptitle(f'Example with {args.activation} activations')
     plt.savefig(
-        f'training_activation-{args.activation}_features-{hidden_features}_layers-{num_hidden}.png',
+        f'example_activation-{args.activation}_features-{hidden_features}_layers-{num_hidden}.png',
         dpi=300,
     )
     plt.close()
