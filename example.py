@@ -1,148 +1,179 @@
-import torch
-from torch import nn, optim
-import numpy as np
+"""
+In this module, we explore fitting a branin function with ReLU and GeLU-based
+MLPs. Specifically, we compare fits of the following form:
+
+(1) ReLU activations
+(2) GeLU activations
+"""
+import argparse
+
 import matplotlib.pyplot as plt
 from matplotlib import cm
+import torch
+from torch import nn, optim
+
+from model import MLP
+from preparation import prepare_data
 from test_function import branin_function
 
-#-------------------------------------------------------------
 
-# simple MLP
+def main(args: argparse):
 
-class MLPLayer(nn.Module):
-    def __init__(self, in_features: int, out_features: int):
-        '''
-        MLP Layer with GELU activations
-        '''
-        super(MLPLayer, self).__init__()
-        self.linear = nn.Linear(in_features, out_features, bias = True)
-        self.act = nn.GELU()
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-    def forward(self, x: torch.tensor):
-        return self.act(self.linear(x))
+    hidden_features = 128
+    num_hidden = 5
+    model = MLP(
+        in_features=2,
+        hidden_features=hidden_features,
+        out_features=1,
+        num_hidden=num_hidden,
+        activation=args.activation,
+    )
+    model.to(device)
 
-class MLP(nn.Module):
-    def __init__(self, in_features: int, hidden_features: int, out_features: int, num_hidden: int):
-        '''
-        MLP with GeLU activations
-        '''
-        super(MLP, self).__init__()
-        layers = [MLPLayer(in_features, hidden_features)] \
-              + [MLPLayer(hidden_features, hidden_features) for ii in range(num_hidden)] \
-              + [nn.Linear(hidden_features, out_features, bias = True)]
-        self.net = nn.Sequential(*layers)
+    optimizer = torch.optim.AdamW(
+        model.parameters(),
+        lr=args.learning_rate,
+        weight_decay=args.weight_decay,
+    )
+    criterion = torch.nn.MSELoss(reduction='mean')
 
-        self.apply(self._init_weights)
+    train_x, train_y, test_x, test_y = prepare_data(
+        args.num_train_gridpoints,
+        args.num_test_gridpoints,
+        device,
+    )
+    losses = {'train': [], 'test': []}
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.net(x)
+    for step in range(args.max_steps):
+        model.train()
+        optimizer.zero_grad()
 
-    def _init_weights(self, module):
-        if isinstance(module, nn.Linear):
-            nn.init.kaiming_normal_(module.weight)
-            if module.bias is not None:
-                nn.init.zeros_(module.bias)
+        pred = model(train_x)
+        loss = criterion(pred, train_y)
+        loss.backward()
+        optimizer.step()
 
-#-----------------------------------------------------------------
+        losses["train"].append(loss.item())
 
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        model.eval()
+        with torch.no_grad():
+            pred = model(test_x)
+            loss = criterion(pred, test_y)
+        losses["test"].append(loss.item())
 
-# setting up training data
-n = 5
-train_x1 = torch.linspace(-1, 1, n)
-train_x2 = torch.linspace(-1, 1, n)
-train_x1, train_x2 = torch.meshgrid(train_x1, train_x2)
-train_x = torch.cat((train_x1[...,None], train_x2[...,None]), dim=-1)
-train_y = branin_function(train_x)[...,None]
+        if step % 10 == 0:
+            train_loss = losses["train"][-1]
+            test_loss = losses["test"][-1]
+            print(
+                f'step {step} |',
+                f'train loss: {train_loss} |',
+                f'test_loss = {test_loss}',
+            )
 
-test_x1 = torch.linspace(-1, 1, 100)
-test_x2 = torch.linspace(-1, 1, 100)
-test_x1, test_x2 = torch.meshgrid(test_x1, test_x2)
-test_x = torch.cat((test_x1[...,None], test_x2[...,None]), dim=-1)
-test_y = branin_function(test_x) [...,None]
-
-train_x = train_x.to(device)
-train_y = train_y.to(device)
-test_x = test_x.to(device)
-test_y = test_y.to(device)
-
-
-hidden_features = 128
-num_hidden = 5
-model = MLP(in_features=2, hidden_features=hidden_features, out_features=1, num_hidden=num_hidden)
-model.to(device)
-
-weight_decay = 1e-5
-learning_rate = 1e-4
-# candidate parameters
-param_dict = {pn: p for pn, p in model.named_parameters()}
-param_dict = {pn: p for pn, p in param_dict.items() if p.requires_grad}
-
-# weight decay applied only to tensor weights of order >= 2 (i.e., not biases)
-decay_params = [p for n, p in param_dict.items() if p.dim() >= 2]
-nodecay_params = [p for n, p in param_dict.items() if p.dim() < 2]
-optim_groups = [
-    {"params": decay_params, 'weight_decay': weight_decay},
-    {"params": nodecay_params, "weight_decay": 0.0}
-        ]
-
-optimizer = torch.optim.AdamW(optim_groups, lr=learning_rate)
-criterion = torch.nn.MSELoss(reduction='mean')
-
-max_steps = 1000
-losses = {"train": [], "test": []}
-
-for step in range(max_steps):
-    model.train()
-    optimizer.zero_grad()
-
-    pred = model(train_x)
-    loss = criterion(pred, train_y)
-    loss.backward()
-    optimizer.step()
-
-    losses["train"].append(loss.item())
+    # Plotting
 
     model.eval()
     with torch.no_grad():
         pred = model(test_x)
-        loss = criterion(pred, test_y)
-    losses["test"].append(loss.item())
 
-    if step % 10 == 0:
-        train_loss = losses["train"][-1]
-        test_loss = losses["test"][-1]
-        print(f"step {step} | train loss: {train_loss} | test_loss = {test_loss}")
+    fig = plt.figure(figsize=(15, 5))
+    ax1 = fig.add_subplot(1, 3, 1, projection='3d')
+    ax2 = fig.add_subplot(1, 3, 2, projection='3d')
+    ax3 = fig.add_subplot(1, 3, 3)
+    ax1.plot_surface(
+        test_x[:, :, 0],
+        test_x[:, :, 1],
+        test_y.squeeze(),
+        cmap=cm.coolwarm,
+        linewidth=0,
+    )
+    ax1.scatter(
+        train_x[:, :, 0],
+        train_x[:, :, 1],
+        train_y.squeeze(),
+        c='r', s=1, alpha=1.0, label='train',
+    )
+    ax1.set_title('Ground truth')
+    ax1.legend(loc='upper right')
 
-# Plotting
-model.eval()
-with torch.no_grad():
-    pred = model(test_x)
+    #ax2.plot_surface(test_x1, train_x2, test_y.squeeze(), cmap=cm.gray, linewidth=0, alpha=0.6)
+    ax2.scatter(
+        train_x[:, :, 0],
+        train_x[:, :, 1],
+        train_y.squeeze(),
+        c='r', s=1, alpha=1.0, label='train',
+    )
+    ax2.scatter(
+        test_x[:, :, 0],
+        test_x[:, :, 1],
+        pred.squeeze(),
+        c='b', s=1, alpha=0.2, label='test',
+    )
+    ax2.set_title(f'MLP-{args.activation}')
+    ax2.legend(loc='upper right')
 
-fig = plt.figure(figsize=(15,5))
-ax1 = fig.add_subplot(1, 3, 1, projection='3d')
-ax2 = fig.add_subplot(1, 3, 2, projection='3d')
-ax3 = fig.add_subplot(1, 3, 3)
+    ax3.plot(
+        range(args.max_steps),
+        losses["train"],
+        'r', label='train',
+    )
+    ax3.plot(
+        range(args.max_steps),
+        losses["test"],
+        'b', label='test',
+    )
+    ax3.set_title('Loss')
+    ax3.set_xlabel('Step')
+    ax3.set_yscale('log')
+    ax3.legend(loc='upper right')
+
+    fig.suptitle(f'Example with {args.activation} activations')
+    plt.savefig(
+        f'training_activation-{args.activation}_features-{hidden_features}_layers-{num_hidden}.png',
+        dpi=300,
+    )
+    plt.close()
 
 
-ax1.plot_surface(test_x1, test_x2, test_y.squeeze(), cmap=cm.coolwarm, linewidth=0)
-ax1.scatter(train_x1, train_x2, train_y.squeeze(), c='r', s=1, alpha = 1.0, label='train')
-ax1.set_title(f"Ground truth")
-ax1.legend(loc="upper right")
-
-#ax2.plot_surface(test_x1, train_x2, test_y.squeeze(), cmap=cm.gray, linewidth=0, alpha=0.6)
-ax2.scatter(train_x1, train_x2, train_y.squeeze(), c='r', s=1, alpha = 1.0, label='train')
-ax2.scatter(test_x1, test_x2, pred.squeeze(), c='b', s=1, alpha = 0.2, label = 'test')
-ax2.set_title(f"MLP")
-ax2.legend(loc="upper right")
-
-ax3.plot(range(max_steps), losses["train"], 'r', label='train')
-ax3.plot(range(max_steps), losses["test"], 'b', label='test')
-ax3.set_title(f"Loss")
-ax3.set_xlabel("Step")
-ax3.set_yscale("log")
-ax3.legend(loc="upper right")
-
-fig.suptitle(f'Training')
-plt.savefig(f"training_features-{hidden_features}_layers-{num_hidden}.png", dpi=300)
-plt.close()
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='Run example')
+    parser.add_argument(
+        '--num_train_gridpoints',
+        type=int,
+        default=5,
+        help='number of training gridpoints per dim',
+    )
+    parser.add_argument(
+        '--num_test_gridpoints',
+        type=int,
+        default=100,
+        help='number of testing gridpoints per dim',
+    )
+    parser.add_argument(
+        '--activation',
+        type=str,
+        default='relu',
+        help='activations: relu or gelu?',
+    )
+    parser.add_argument(
+        '--learning_rate',
+        type=float,
+        default=1e-4,
+        help='learning rate',
+    )
+    parser.add_argument(
+        '--weight_decay',
+        type=float,
+        default=0.0,
+        help='weight decay',
+    )
+    parser.add_argument(
+        '--max_steps',
+        type=int,
+        default=1000,
+        help='maximum steps for optimization',
+    )
+    args = parser.parse_args()
+    main(args)
